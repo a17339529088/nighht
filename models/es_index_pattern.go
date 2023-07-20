@@ -1,7 +1,10 @@
 package models
 
 import (
+	"time"
+
 	"github.com/ccfos/nightingale/v6/pkg/ctx"
+
 	"github.com/pkg/errors"
 )
 
@@ -37,14 +40,29 @@ func (r *EsIndexPattern) Add(ctx *ctx.Context) error {
 
 func EsIndexPatternDel(ctx *ctx.Context, ids []int64) error {
 	if len(ids) == 0 {
-		panic("ids empty")
+		return nil
 	}
 	return DB(ctx).Where("id in ?", ids).Delete(new(EsIndexPattern)).Error
 }
 
-func (eip *EsIndexPattern) Update(ctx *ctx.Context, selectField interface{}, selectFields ...interface{}) error {
+func (ei *EsIndexPattern) Update(ctx *ctx.Context, eip EsIndexPattern) error {
+	if ei.Name != eip.Name || ei.DatasourceId != eip.DatasourceId {
+		exists, err := EsIndexPatternExists(ctx, ei.Id, eip.DatasourceId, eip.Name)
+		if err != nil {
+			return err
+		}
 
-	return DB(ctx).Model(eip).Select(selectField, selectFields...).Updates(eip).Error
+		if exists {
+			return errors.New("EsIndexPattern already exists")
+		}
+	}
+
+	eip.Id = ei.Id
+	eip.CreateAt = ei.CreateAt
+	eip.CreateBy = ei.CreateBy
+	eip.UpdateAt = time.Now().Unix()
+
+	return DB(ctx).Model(ei).Select("*").Updates(eip).Error
 }
 
 func EsIndexPatternGets(ctx *ctx.Context, where string, args ...interface{}) ([]*EsIndexPattern, error) {
@@ -68,4 +86,23 @@ func EsIndexPatternGet(ctx *ctx.Context, where string, args ...interface{}) (*Es
 	}
 
 	return lst[0], nil
+}
+
+func EsIndexPatternGetById(ctx *ctx.Context, id int64) (*EsIndexPattern, error) {
+	return EsIndexPatternGet(ctx, "id=?", id)
+}
+
+func EsIndexPatternExists(ctx *ctx.Context, id, datasourceId int64, name string) (bool, error) {
+	session := DB(ctx).Where("id <> ? and datasource_id = ? and name = ?", id, datasourceId, name)
+
+	var lst []EsIndexPattern
+	err := session.Find(&lst).Error
+	if err != nil {
+		return false, err
+	}
+	if len(lst) == 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
